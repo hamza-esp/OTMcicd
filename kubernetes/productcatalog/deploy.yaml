@@ -1,11 +1,14 @@
 ---
-# Source: opentelemetry-demo/templates/component.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: opentelemetry-demo-productcatalogservice
+  name: product-catalog-service
   labels:
-    
+    #app:  product-catalog
+    #app.kubernetes.io/name: product-catalog-service
+    #app.kubernetes.io/component: productcatalogservice
+    #app.kubernetes.io/version: "1.12.0"
+
     opentelemetry.io/name: opentelemetry-demo-productcatalogservice
     app.kubernetes.io/instance: opentelemetry-demo
     app.kubernetes.io/component: productcatalogservice
