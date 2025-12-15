@@ -3,9 +3,15 @@
 name: product-catalog-ci
 
 on:  
-  pull_request: 
-    branches: 
+  pull_request:  
+    branches:  
     - main
+  workflow_dispatch:  # for manual testing! 
+    inputs:
+      debug:
+        description: 'Run in debug mode'
+        required:  false
+        default: 'false'
   
 jobs:
     build: 
