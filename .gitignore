@@ -50,6 +50,13 @@ test/tracetesting/tracetesting-vars.yaml
 /src/shipping/proto/
 /src/currency/proto
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
+crash.*.log
+
 # Android
 *.apk
 
