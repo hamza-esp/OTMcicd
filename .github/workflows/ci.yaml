@@ -179,7 +179,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [build, code-quality, security-scan, iac-security]
+    needs: [build, security-scan, iac-security]
     permissions:
       contents: read
       security-events: write
