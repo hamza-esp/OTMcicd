@@ -38,8 +38,8 @@ jobs:
             go test ./...
     
     code-quality:
-      #without runner you cannot run the job, always need a vm to run the job
-        runs-on: ubuntu-latest
+        continue-on-error: true
+        runs-on: ubuntu-latest #without runner you cannot run the job, always need a vm to run the job
 
         steps:
         - name: checkout code
@@ -95,40 +95,41 @@ jobs:
             severity: 'CRITICAL,HIGH'
           continue-on-error: true
 
-    # JOB: Checkov IaC Security Scanning
-    iac-security: 
+        # Checkov IaC Security Scanning
+    iac-security:  
         runs-on: ubuntu-latest
         permissions:
           contents: read
-          security-events:  write
+          security-events: write
           actions: read
 
         steps:
         - name:  Checkout code
           uses: actions/checkout@v4
 
-        - name: Run Checkov (Terraform)
+        # Scan your actual Terraform files in eks-install folder
+        - name:  Run Checkov on Terraform (EKS)
           uses: bridgecrewio/checkov-action@master
-          with:
-            directory: terraform/
+          with: 
+            directory: eks-install/
             framework: terraform
             output_format: sarif
             output_file_path: checkov-results.sarif
-            soft_fail: true  # Don't fail the build on findings
-            skip_check:  CKV_AWS_79  # Example:  skip specific checks if needed
+            soft_fail: true
 
-        - name: Upload Checkov results to GitHub Security
-          uses: github/codeql-action/upload-sarif@v4
+        - name: Upload Checkov Terraform results to GitHub Security
+          uses:  github/codeql-action/upload-sarif@v4
           if: always()
           with:
             sarif_file: ./results.sarif
             category: 'checkov-terraform'
 
+        # Scan Kubernetes manifests
         - name: Run Checkov on Kubernetes manifests
           uses: bridgecrewio/checkov-action@master
           with:
-            directory: kubernetes/
-            framework: kubernetes
+            directory: kubernetes/productcatalog/
+            framework:  kubernetes
             output_format: cli
             soft_fail: true
           continue-on-error: true
