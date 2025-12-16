@@ -1,223 +1,316 @@
-# CI for Product Catalog Service
+# CI for Product Catalog Service (SIMPLE VERSION)
 
 name: product-catalog-ci
 
-on:  
-  pull_request:  
-    branches:  
-    - main
-  workflow_dispatch:  # for manual testing! 
-    inputs: 
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
       debug:
-        description:  'Run in debug mode'
-        required:  false
+        description: 'Run in debug mode'
+        required: false
         default: 'false'
-  
+
 jobs:
-    build: 
-        runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-        steps:
-        - name: checkout code
-          uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        - name: Setup Go 1.22
-          uses: actions/setup-go@v2
-          with:  
-            go-version: 1.22
-        
-        - name: Build
-          run: |
-            cd src/product-catalog
-            go mod download
-            go build -o product-catalog-service main.go
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.22
 
-        - name: unit tests
-          run: |
-            cd src/product-catalog
-            go test ./...
-    
-    code-quality:
+      - name: Build
+        run: |
+          cd src/product-catalog
+          go mod download
+          go build -o product-catalog-service main.go
+
+      - name: Unit tests
+        run: |
+          cd src/product-catalog
+          go test ./...
+
+  code-quality:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.22
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.55.2
+          working-directory: src/product-catalog
+
+  # JOB: Trivy Security Scanning (SIMPLE - Easy to understand)
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan (SARIF for Security tab)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'src/product-catalog'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload Trivy FS results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+          category: 'trivy-filesystem'
+
+      - name: Run Trivy filesystem scan (Table for logs)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'src/product-catalog'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
-        runs-on: ubuntu-latest #without runner you cannot run the job, always need a vm to run the job
 
-        steps:
-        - name: checkout code
-          uses:  actions/checkout@v4
-        
-        - name: Setup Go 1.22
-          uses: actions/setup-go@v2
-          with:
-           go-version:  1.22
-        
-        - name: Run golangci-lint
-          uses: golangci/golangci-lint-action@v6
-          with:  
-            version: v1.55.2
-            working-directory: src/product-catalog
+      - name: Run Trivy filesystem scan (JSON for summary)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'src/product-catalog'
+          format: 'json'
+          output: 'trivy-fs-results.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
 
-    # JOB: Trivy Security Scanning
-    security-scan:
-        runs-on: ubuntu-latest
-        permissions:
-          contents: read
-          security-events:  write
-          actions: read
+      - name: Generate Security Scan Summary
+        if: always()
+        run: |
+          echo "## 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-        steps:
-        - name:  Checkout code
-          uses: actions/checkout@v4
+          if [ -f "trivy-fs-results.json" ]; then
+            CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs-results.json)
+            HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs-results.json)
+            MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs-results.json)
 
-        # Scan 1: Filesystem scan (source code + dependencies)
-        - name: Run Trivy vulnerability scanner (Filesystem)
-          uses: aquasecurity/trivy-action@master
-          with:
-            scan-type: 'fs'
-            scan-ref: 'src/product-catalog'
-            format: 'sarif'
-            output:  'trivy-fs-results.sarif'
-            severity: 'CRITICAL,HIGH,MEDIUM'
+            echo "### 📊 Vulnerability Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
 
-        - name: Upload Trivy FS results to GitHub Security
-          uses: github/codeql-action/upload-sarif@v4
-          if: always()
-          with:
-            sarif_file: 'trivy-fs-results.sarif'
-            category: 'trivy-filesystem'
+            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "⚠️ **Warning:** Critical or High severity vulnerabilities detected!" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **No Critical or High severity vulnerabilities found**" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "ℹ️ Scan results not available" >> $GITHUB_STEP_SUMMARY
+          fi
 
-        # Scan 2: Go modules scan (table output for logs)
-        - name: Run Trivy vulnerability scanner (Go modules)
-          uses: aquasecurity/trivy-action@master
-          with:
-            scan-type: 'fs'
-            scan-ref: 'src/product-catalog/go.mod'
-            format: 'table'
-            severity: 'CRITICAL,HIGH'
-          continue-on-error: true
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View detailed results in Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
 
-        # Checkov IaC Security Scanning
-    iac-security:  
-        runs-on: ubuntu-latest
-        permissions:
-          contents: read
-          security-events: write
-          actions: read
+  # IaC Security Scanning (SIMPLE - Each scan is independent)
+  iac-security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
 
-        steps:
-        - name:  Checkout code
-          uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        # Scan actual Terraform files in eks-install folder
-        - name:  Run Checkov on Terraform (EKS)
-          uses: bridgecrewio/checkov-action@master
-          with: 
-            directory: EKS/
-            framework: terraform
-            output_format: sarif
-            output_file_path: ./checkov-terraform.sarif
-            soft_fail: true
+      - name: Run Checkov on Terraform (SARIF for Security tab)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: EKS/
+          framework: terraform
+          output_format: sarif
+          output_file_path: ./checkov-terraform.sarif
+          soft_fail: true
 
-        - name: Upload Checkov Terraform results to GitHub Security
-          uses:  github/codeql-action/upload-sarif@v4
-          if: always()
-          with:
-            sarif_file: ./checkov-terraform.sarif
-            category: 'checkov-terraform'
+      - name: Upload Checkov Terraform results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: ./checkov-terraform.sarif
+          category: 'checkov-terraform'
 
-        # Scan Kubernetes manifests
-        - name: Run Checkov on Kubernetes manifests
-          uses: bridgecrewio/checkov-action@master
-          with:
-            directory: kubernetes/productcatalog/
-            framework:  kubernetes
-            output_format: cli
-            soft_fail: true
-          continue-on-error: true
+      - name: Run Checkov on Terraform (JSON for summary)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: EKS/
+          framework: terraform
+          output_format: json
+          output_file_path: ./checkov-terraform.json
+          soft_fail: true
+        continue-on-error: true
 
-    docker: 
-        runs-on:  ubuntu-latest
-        needs: [build, security-scan]  # Added security-scan dependency
-        permissions:
-          contents: read
-          security-events: write
+      - name: Run Checkov on Kubernetes manifests (CLI for logs)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: kubernetes/productcatalog/
+          framework: kubernetes
+          output_format: cli
+          soft_fail: true
+        continue-on-error: true
 
-        steps: 
-        - name: checkout code
-          uses: actions/checkout@v4
+      - name: Run Checkov on Kubernetes manifests (JSON for summary)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: kubernetes/productcatalog/
+          framework: kubernetes
+          output_format: json
+          output_file_path: ./checkov-k8s.json
+          soft_fail: true
+        continue-on-error: true
 
-        - name: Configure AWS credentials
-          uses: aws-actions/configure-aws-credentials@v4
-          with:
-            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: ${{ secrets.AWS_REGION }}
+      - name: Generate IaC Security Summary
+        if: always()
+        run: |
+          echo "## 🏗️ Infrastructure as Code Security Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-        - name: Login to Amazon ECR
-          id: login-ecr
-          uses: aws-actions/amazon-ecr-login@v2
+          if [ -f "checkov-terraform.json" ]; then
+            TF_PASSED=$(jq '.summary.passed // 0' checkov-terraform.json)
+            TF_FAILED=$(jq '.summary.failed // 0' checkov-terraform.json)
+            TF_SKIPPED=$(jq '.summary.skipped // 0' checkov-terraform.json)
 
-        - name: Build, tag, and push image to Amazon ECR
-          env:
-            ECR_REGISTRY: ${{ steps.login-ecr.outputs. registry }}
-            ECR_REPOSITORY: product-catalog
-            IMAGE_TAG: ${{ github.run_id }}
-          run: |
-            cd src/product-catalog
-            docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG . 
-            docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+            echo "### 📦 Terraform (EKS) Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Status | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | $TF_PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $TF_FAILED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $TF_SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
 
-        # NEW:  Scan 3: Scan the Docker image we just pushed
-        - name: Run Trivy vulnerability scanner (Docker Image)
-          uses: aquasecurity/trivy-action@master
-          with:
-            scan-type: 'image'
-            image-ref: '${{ steps.login-ecr.outputs. registry }}/product-catalog:${{ github.run_id }}'
-            format: 'sarif'
-            output: 'trivy-image-results.sarif'
-            severity: 'CRITICAL,HIGH'
+          if [ -f "checkov-k8s.json" ]; then
+            K8S_PASSED=$(jq '.summary.passed // 0' checkov-k8s.json)
+            K8S_FAILED=$(jq '.summary.failed // 0' checkov-k8s.json)
+            K8S_SKIPPED=$(jq '.summary.skipped // 0' checkov-k8s.json)
 
-        - name: Upload Trivy Image results to GitHub Security
-          uses: github/codeql-action/upload-sarif@v4
-          if: always()
-          with:
-            sarif_file: 'trivy-image-results.sarif'
-            category: 'trivy-image'
+            echo "### ☸️ Kubernetes Manifests Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Status | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | $K8S_PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $K8S_FAILED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $K8S_SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
 
-    
-    updatek8s:
-        runs-on: ubuntu-latest
-        needs: docker
+          echo "[View detailed results in Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
 
-        steps: 
-        - name: checkout code
-          uses:  actions/checkout@v4
-          with:
-            # Clones the repo with permission to push changes back.
-            token: ${{ secrets.TOKEN }}
+  docker:
+    runs-on: ubuntu-latest
+    needs: [build, security-scan]
+    permissions:
+      contents: read
+      security-events: write
 
-        - name: Configure AWS credentials
-          uses: aws-actions/configure-aws-credentials@v4
-          with: 
-            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: ${{ secrets.AWS_REGION }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        - name: Login to Amazon ECR
-          id:  login-ecr
-          uses:  aws-actions/amazon-ecr-login@v2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-        - name: Update tag in kubernetes deployment manifest
-          env:
-            ECR_REGISTRY: ${{ steps. login-ecr.outputs.registry }}
-            ECR_REPOSITORY:  product-catalog
-            IMAGE_TAG: ${{ github.run_id }}
-          run: | 
-               sed -i "s|image: .*|image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|" kubernetes/productcatalog/deploy.yaml
-        
-        - name: Commit and push changes
-          run: |
-            git config --global user.email "hamzabar99@gmail.com"
-            git config --global user.name "hamza-esp"
-            git add kubernetes/productcatalog/deploy.yaml
-            git commit -m "[CI]: Update product catalog image tag to ${{ github. run_id }}"
-            git push origin HEAD:main -f
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: product-catalog
+          IMAGE_TAG: ${{ github.run_id }}
+        run: |
+          cd src/product-catalog
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Run Trivy vulnerability scanner (Docker Image)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ steps.login-ecr.outputs.registry }}/product-catalog:${{ github.run_id }}'
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy Image results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+          category: 'trivy-image'
+
+  updatek8s:
+    runs-on: ubuntu-latest
+    needs: docker
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Update tag in kubernetes deployment manifest
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: product-catalog
+          IMAGE_TAG: ${{ github.run_id }}
+        run: |
+          sed -i "s|image: .*|image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|" kubernetes/productcatalog/deploy.yaml
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.email "hamzabar99@gmail.com"
+          git config --global user.name "hamza-esp"
+          git add kubernetes/productcatalog/deploy.yaml
+          git commit -m "[CI]: Update product catalog image tag to ${{ github.run_id }}"
+          git push origin HEAD:main -f
