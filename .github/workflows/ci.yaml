@@ -143,7 +143,7 @@ jobs:
         id: checkov
         uses: bridgecrewio/checkov-action@master
         with:
-          directory: eks/
+          directory: EKS/
           framework: terraform
           output_format: sarif
           output_file_path: ./checkov-terraform.sarif
@@ -161,7 +161,7 @@ jobs:
         run: |
           echo "## 🔐 Checkov IaC Security Scan" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ⚙️ Terraform Security Scan (eks/)" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚙️ Terraform Security Scan (EKS/)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Checkov scanned your Terraform infrastructure code for security issues." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
