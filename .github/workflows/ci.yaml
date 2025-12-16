@@ -24,17 +24,6 @@ jobs:
         with:
           go-version: 1.22
 
-      # ✅ Add Go module caching
-      - name: Cache Go modules & build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
       - name: Build
         run: |
           cd src/product-catalog
@@ -58,24 +47,13 @@ jobs:
         with:
           go-version: 1.22
 
-      # ✅ Add Go module caching
-      - name: Cache Go modules & build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.55.2
           working-directory: src/product-catalog
 
-  # Trivy Security Scanning with Summary (filesystem)
+  # Trivy Security Scanning with Summary
   security-scan:
     runs-on: ubuntu-latest
     permissions:
@@ -86,10 +64,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      # Filesystem scan - SARIF for GitHub Security
+      - name: Run Trivy vulnerability scanner (Filesystem - SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "src/product-catalog"
+          format: "sarif"
+          output: "trivy-fs-results.sarif"
+          severity: "CRITICAL,HIGH,MEDIUM"
 
-      # ✅ Stop running Trivy 3×: scan once (JSON)
+      - name: Upload Trivy FS results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: "trivy-fs-results.sarif"
+          category: "trivy-filesystem"
+
+      # Filesystem scan - JSON for summary
       - name: Run Trivy vulnerability scanner (Filesystem - JSON)
         uses: aquasecurity/trivy-action@master
         with:
@@ -100,20 +92,15 @@ jobs:
           severity: "CRITICAL,HIGH,MEDIUM"
         continue-on-error: true
 
-      # Convert JSON -> SARIF (no re-scan)
-      - name: Convert Trivy FS JSON to SARIF
-        if: always()
-        run: |
-          sudo apt-get install -y wget
-          wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-          trivy convert --format sarif --output trivy-fs-results.sarif trivy-fs-results.json || true
-
-      - name: Upload Trivy FS results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
+      # Filesystem scan - Table for logs
+      - name: Run Trivy vulnerability scanner (Filesystem - Table)
+        uses: aquasecurity/trivy-action@master
         with:
-          sarif_file: "trivy-fs-results.sarif"
-          category: "trivy-filesystem"
+          scan-type: "fs"
+          scan-ref: "src/product-catalog"
+          format: "table"
+          severity: "CRITICAL,HIGH,MEDIUM"
+        continue-on-error: true
 
       # Generate GitHub Actions Summary
       - name: Generate Trivy Filesystem Summary
@@ -192,8 +179,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    # ✅ Add code-quality & iac-security as Docker dependencies
-    needs: [build, code-quality, security-scan, iac-security]
+    needs: [build, security-scan]
     permissions:
       contents: read
       security-events: write
@@ -222,10 +208,22 @@ jobs:
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Run Trivy vulnerability scanner (Docker Image - SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "image"
+          image-ref: "${{ steps.login-ecr.outputs.registry }}/product-catalog:${{ github.run_id }}"
+          format: "sarif"
+          output: "trivy-image-results.sarif"
+          severity: "CRITICAL,HIGH"
 
-      # ✅ Stop running Trivy 3×: scan once (JSON)
+      - name: Upload Trivy Image results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: "trivy-image-results.sarif"
+          category: "trivy-image"
+
       - name: Run Trivy vulnerability scanner (Docker Image - JSON)
         uses: aquasecurity/trivy-action@master
         with:
@@ -236,20 +234,14 @@ jobs:
           severity: "CRITICAL,HIGH"
         continue-on-error: true
 
-      # Convert JSON -> SARIF (no re-scan)
-      - name: Convert Trivy Image JSON to SARIF
-        if: always()
-        run: |
-          sudo apt-get install -y wget
-          wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-          trivy convert --format sarif --output trivy-image-results.sarif trivy-image-results.json || true
-
-      - name: Upload Trivy Image results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
+      - name: Run Trivy vulnerability scanner (Docker Image - Table)
+        uses: aquasecurity/trivy-action@master
         with:
-          sarif_file: "trivy-image-results.sarif"
-          category: "trivy-image"
+          scan-type: "image"
+          image-ref: "${{ steps.login-ecr.outputs.registry }}/product-catalog:${{ github.run_id }}"
+          format: "table"
+          severity: "CRITICAL,HIGH"
+        continue-on-error: true
 
       - name: Generate Docker Image Trivy Summary
         if: always()
