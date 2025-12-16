@@ -107,21 +107,21 @@ jobs:
         - name:  Checkout code
           uses: actions/checkout@v4
 
-        # Scan your actual Terraform files in eks-install folder
+        # Scan actual Terraform files in eks-install folder
         - name:  Run Checkov on Terraform (EKS)
           uses: bridgecrewio/checkov-action@master
           with: 
             directory: EKS/
             framework: terraform
             output_format: sarif
-            output_file_path: checkov-results.sarif
+            output_file_path: ./checkov-terraform.sarif
             soft_fail: true
 
         - name: Upload Checkov Terraform results to GitHub Security
           uses:  github/codeql-action/upload-sarif@v4
           if: always()
           with:
-            sarif_file: ./results.sarif
+            sarif_file: ./checkov-terraform.sarif
             category: 'checkov-terraform'
 
         # Scan Kubernetes manifests
