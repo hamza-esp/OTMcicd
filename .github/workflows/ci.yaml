@@ -55,7 +55,48 @@ jobs:
         with:
           version: v1.55.2
           working-directory: src/product-catalog
+  codeql:
+    name: CodeQL SAST
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
 
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'go' ]  # add 'java' only if this repo contains Java
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+      - name: Generate CodeQL Summary
+        if: always()
+        run: |
+          echo "## 🔍 CodeQL Analysis Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Language:** ${{ matrix.language }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Results: https://github.com/${{ github.repository }}/security/code-scanning" >> $GITHUB_STEP_SUMMARY
+
+
+          
   # JOB: Trivy Security Scanning (SIMPLE - Easy to understand)
   security-scan:
     runs-on: ubuntu-latest
