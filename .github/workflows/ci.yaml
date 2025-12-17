@@ -226,15 +226,39 @@ jobs:
           output_file_path: checkov-results/checkov-k8s.json
           soft_fail: true
         continue-on-error: true
-
+      - name: Debug Checkov output files
+        if: always()
+        run: |
+          echo "=== PWD ==="
+          pwd
+          echo "=== Repo root listing ==="
+          ls -la
+          echo "=== checkov-results listing ==="
+          ls -la checkov-results || true
+          echo "=== find *.sarif/*.json ==="
+          find . -maxdepth 4 -type f \( -name "*.sarif" -o -name "*.json" \) -print
+          
       - name: Generate IaC Security Summary
         if: always()
         run: |
           echo "## 🏗️ Infrastructure as Code Security Scan (Checkov)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # --- Terraform SARIF (this run, matches Security tab) ---
+          mkdir -p checkov-results
+
+          # Collect outputs wherever the action wrote them
+          TF_SARIF=$(find . -type f -name "checkov-terraform.sarif" | head -n 1 || true)
+          TF_JSON=$(find . -type f -name "checkov-terraform.json" | head -n 1 || true)
+          K8S_JSON=$(find . -type f -name "checkov-k8s.json" | head -n 1 || true)
+
+          [ -n "$TF_SARIF" ] && cp "$TF_SARIF" checkov-results/checkov-terraform.sarif
+          [ -n "$TF_JSON" ] && cp "$TF_JSON" checkov-results/checkov-terraform.json
+          [ -n "$K8S_JSON" ] && cp "$K8S_JSON" checkov-results/checkov-k8s.json
+
+          FOUND=0
+
           if [ -f "checkov-results/checkov-terraform.sarif" ]; then
+            FOUND=1
             TOTAL=$(jq '.runs[0].results | length' checkov-results/checkov-terraform.sarif)
             ERROR=$(jq '[.runs[0].results[] | select(.level=="error")] | length' checkov-results/checkov-terraform.sarif)
             WARN=$(jq '[.runs[0].results[] | select(.level=="warning")] | length' checkov-results/checkov-terraform.sarif)
@@ -250,8 +274,8 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
-          # --- Terraform JSON summary ---
           if [ -f "checkov-results/checkov-terraform.json" ]; then
+            FOUND=1
             TF_PASSED=$(jq '.summary.passed // 0' checkov-results/checkov-terraform.json)
             TF_FAILED=$(jq '.summary.failed // 0' checkov-results/checkov-terraform.json)
             TF_SKIPPED=$(jq '.summary.skipped // 0' checkov-results/checkov-terraform.json)
@@ -265,8 +289,8 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
-          # --- Kubernetes JSON summary ---
           if [ -f "checkov-results/checkov-k8s.json" ]; then
+            FOUND=1
             K8S_PASSED=$(jq '.summary.passed // 0' checkov-results/checkov-k8s.json)
             K8S_FAILED=$(jq '.summary.failed // 0' checkov-results/checkov-k8s.json)
             K8S_SKIPPED=$(jq '.summary.skipped // 0' checkov-results/checkov-k8s.json)
@@ -280,8 +304,16 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
+          if [ "$FOUND" -eq 0 ]; then
+            echo "⚠️ **No Checkov output files were found to summarize.**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Tip: Check the job logs for the Checkov steps and verify output paths." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "[View detailed results in Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
-  
+          
+   
 
   docker:
     runs-on: ubuntu-latest
