@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: opentelemetry-demo-emailservice
+  name: email-service
   labels:
     
     opentelemetry.io/name: opentelemetry-demo-emailservice

@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: opentelemetry-demo-flagd
+  name: flagd
   labels:
     
     opentelemetry.io/name: opentelemetry-demo-flagd

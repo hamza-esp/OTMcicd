@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: opentelemetry-demo-kafka
+  name: kafka
   labels:
     
     opentelemetry.io/name: opentelemetry-demo-kafka

@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: opentelemetry-demo-accountingservice
+  name: accounting-ervice
   labels:
     
     opentelemetry.io/name: opentelemetry-demo-accountingservice

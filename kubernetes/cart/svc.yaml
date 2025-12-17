@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: opentelemetry-demo-cartservice
+  name: cart-service
   labels:
     
     opentelemetry.io/name: opentelemetry-demo-cartservice

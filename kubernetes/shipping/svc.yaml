@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: opentelemetry-demo-shippingservice
+  name: shippingservice
   labels:
     
     opentelemetry.io/name: opentelemetry-demo-shippingservice

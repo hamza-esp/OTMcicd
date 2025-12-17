@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: opentelemetry-demo-loadgenerator
+  name: loadgenerator
   labels:
     
     opentelemetry.io/name: opentelemetry-demo-loadgenerator
