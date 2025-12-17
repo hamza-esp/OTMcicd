@@ -176,143 +176,115 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[View detailed results in Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
 
-  # IaC Security Scanning (SIMPLE - Each scan is independent)
+  # IaC Security Scanning (Checkov CLI – reliable summaries)
   iac-security:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
-      actions: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create Checkov output directory
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Create output directory
         run: mkdir -p checkov-results
 
-      - name: Run Checkov on Terraform (SARIF for Security tab)
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: EKS/
-          framework: terraform
-          output_format: sarif
-          output_file_path: checkov-results/checkov-terraform.sarif
-          soft_fail: true
+      # -------- Terraform --------
+      - name: Run Checkov on Terraform (SARIF)
+        run: |
+          checkov -d EKS/ \
+            --framework terraform \
+            -o sarif \
+            --output-file-path checkov-results/checkov-terraform.sarif \
+            --soft-fail
 
-      - name: Upload Checkov Terraform results to GitHub Security
+      - name: Upload Terraform SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: checkov-results/checkov-terraform.sarif
-          category: 'checkov-terraform'
+          category: checkov-terraform
 
-      - name: Run Checkov on Terraform (JSON for summary)
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: EKS/
-          framework: terraform
-          output_format: json
-          output_file_path: checkov-results/checkov-terraform.json
-          soft_fail: true
-        continue-on-error: true
-
-      - name: Run Checkov on Kubernetes manifests (JSON for summary)
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: kubernetes/productcatalog/
-          framework: kubernetes
-          output_format: json
-          output_file_path: checkov-results/checkov-k8s.json
-          soft_fail: true
-        continue-on-error: true
-      - name: Debug Checkov output files
-        if: always()
+      - name: Run Checkov on Terraform (JSON)
         run: |
-          echo "=== PWD ==="
-          pwd
-          echo "=== Repo root listing ==="
-          ls -la
-          echo "=== checkov-results listing ==="
-          ls -la checkov-results || true
-          echo "=== find *.sarif/*.json ==="
-          find . -maxdepth 4 -type f \( -name "*.sarif" -o -name "*.json" \) -print
-          
+          checkov -d EKS/ \
+            --framework terraform \
+            -o json \
+            --output-file-path checkov-results/checkov-terraform.json \
+            --soft-fail
+
+      # -------- Kubernetes --------
+      - name: Run Checkov on Kubernetes manifests (JSON)
+        run: |
+          checkov -d kubernetes/productcatalog/ \
+            --framework kubernetes \
+            -o json \
+            --output-file-path checkov-results/checkov-k8s.json \
+            --soft-fail
+
+      # -------- Summary --------
       - name: Generate IaC Security Summary
         if: always()
         run: |
           echo "## 🏗️ Infrastructure as Code Security Scan (Checkov)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          mkdir -p checkov-results
-
-          # Collect outputs wherever the action wrote them
-          TF_SARIF=$(find . -type f -name "checkov-terraform.sarif" | head -n 1 || true)
-          TF_JSON=$(find . -type f -name "checkov-terraform.json" | head -n 1 || true)
-          K8S_JSON=$(find . -type f -name "checkov-k8s.json" | head -n 1 || true)
-
-          [ -n "$TF_SARIF" ] && cp "$TF_SARIF" checkov-results/checkov-terraform.sarif
-          [ -n "$TF_JSON" ] && cp "$TF_JSON" checkov-results/checkov-terraform.json
-          [ -n "$K8S_JSON" ] && cp "$K8S_JSON" checkov-results/checkov-k8s.json
-
-          FOUND=0
-
+          # Terraform SARIF
           if [ -f "checkov-results/checkov-terraform.sarif" ]; then
-            FOUND=1
             TOTAL=$(jq '.runs[0].results | length' checkov-results/checkov-terraform.sarif)
             ERROR=$(jq '[.runs[0].results[] | select(.level=="error")] | length' checkov-results/checkov-terraform.sarif)
             WARN=$(jq '[.runs[0].results[] | select(.level=="warning")] | length' checkov-results/checkov-terraform.sarif)
-            NOTE=$(jq '[.runs[0].results[] | select(.level=="note")] | length' checkov-results/checkov-terraform.sarif)
 
-            echo "### 📌 Terraform SARIF (this run)" >> $GITHUB_STEP_SUMMARY
-            echo "| Level | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ error | $ERROR |" >> $GITHUB_STEP_SUMMARY
-            echo "| ⚠️ warning | $WARN |" >> $GITHUB_STEP_SUMMARY
-            echo "| ℹ️ note | $NOTE |" >> $GITHUB_STEP_SUMMARY
+            echo "### 📌 Terraform (SARIF – this run)" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ High | $ERROR |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⚠️ Medium | $WARN |" >> $GITHUB_STEP_SUMMARY
             echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
+          # Terraform JSON
           if [ -f "checkov-results/checkov-terraform.json" ]; then
-            FOUND=1
-            TF_PASSED=$(jq '.summary.passed // 0' checkov-results/checkov-terraform.json)
-            TF_FAILED=$(jq '.summary.failed // 0' checkov-results/checkov-terraform.json)
-            TF_SKIPPED=$(jq '.summary.skipped // 0' checkov-results/checkov-terraform.json)
+            PASSED=$(jq '.summary.passed // 0' checkov-results/checkov-terraform.json)
+            FAILED=$(jq '.summary.failed // 0' checkov-results/checkov-terraform.json)
+            SKIPPED=$(jq '.summary.skipped // 0' checkov-results/checkov-terraform.json)
 
-            echo "### 📦 Terraform (EKS) – Policy Results" >> $GITHUB_STEP_SUMMARY
+            echo "### 📦 Terraform Policies" >> $GITHUB_STEP_SUMMARY
             echo "| Status | Count |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | $TF_PASSED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | $TF_FAILED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ⏭️ Skipped | $TF_SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
+          # Kubernetes JSON
           if [ -f "checkov-results/checkov-k8s.json" ]; then
-            FOUND=1
-            K8S_PASSED=$(jq '.summary.passed // 0' checkov-results/checkov-k8s.json)
-            K8S_FAILED=$(jq '.summary.failed // 0' checkov-results/checkov-k8s.json)
-            K8S_SKIPPED=$(jq '.summary.skipped // 0' checkov-results/checkov-k8s.json)
+            PASSED=$(jq '.summary.passed // 0' checkov-results/checkov-k8s.json)
+            FAILED=$(jq '.summary.failed // 0' checkov-results/checkov-k8s.json)
+            SKIPPED=$(jq '.summary.skipped // 0' checkov-results/checkov-k8s.json)
 
-            echo "### ☸️ Kubernetes Manifests – Policy Results" >> $GITHUB_STEP_SUMMARY
+            echo "### ☸️ Kubernetes Manifests" >> $GITHUB_STEP_SUMMARY
             echo "| Status | Count |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | $K8S_PASSED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | $K8S_FAILED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ⏭️ Skipped | $K8S_SKIPPED |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ "$FOUND" -eq 0 ]; then
-            echo "⚠️ **No Checkov output files were found to summarize.**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Tip: Check the job logs for the Checkov steps and verify output paths." >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "[View detailed results in Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
-          
+        
    
 
   docker:
