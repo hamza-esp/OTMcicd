@@ -121,7 +121,7 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
 
-      - name: Run Trivy filesystem scan (JSON for summary)
+      - name: Run Trivy filesystem scan (JSON for reference)
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
@@ -131,33 +131,39 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
 
-      - name: Generate Security Scan Summary
+      - name: Generate Security Scan Summary (from SARIF)
         if: always()
         run: |
-          echo "## 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔒 Security Scan Results (Trivy FS)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ -f "trivy-fs-results.json" ]; then
-            CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs-results.json)
-            HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs-results.json)
-            MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs-results.json)
+          if [ -f "trivy-fs-results.sarif" ]; then
+            # SARIF levels:
+            #   error   -> High/Critical (depends on tool mapping)
+            #   warning -> Medium
+            #   note    -> Low
+            TOTAL=$(jq '.runs[0].results | length' trivy-fs-results.sarif)
+            ERROR=$(jq '[.runs[0].results[] | select(.level=="error")] | length' trivy-fs-results.sarif)
+            WARN=$(jq '[.runs[0].results[] | select(.level=="warning")] | length' trivy-fs-results.sarif)
+            NOTE=$(jq '[.runs[0].results[] | select(.level=="note")] | length' trivy-fs-results.sarif)
 
-            echo "### 📊 Vulnerability Summary" >> $GITHUB_STEP_SUMMARY
+            echo "### 📊 Findings Summary (this run)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| Level (SARIF) | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ error (High/Critical) | $ERROR |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⚠️ warning (Medium) | $WARN |" >> $GITHUB_STEP_SUMMARY
+            echo "| ℹ️ note (Low) | $NOTE |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
 
-            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-              echo "⚠️ **Warning:** Critical or High severity vulnerabilities detected!" >> $GITHUB_STEP_SUMMARY
+            if [ "$ERROR" -gt 0 ]; then
+              echo "⚠️ **Warning:** High/Critical findings detected in this run!" >> $GITHUB_STEP_SUMMARY
             else
-              echo "✅ **No Critical or High severity vulnerabilities found**" >> $GITHUB_STEP_SUMMARY
+              echo "✅ **No High/Critical findings detected in this run**" >> $GITHUB_STEP_SUMMARY
             fi
           else
-            echo "ℹ️ Scan results not available" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️ SARIF scan results not available (trivy-fs-results.sarif missing)" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -223,21 +229,46 @@ jobs:
       - name: Generate IaC Security Summary
         if: always()
         run: |
-          echo "## 🏗️ Infrastructure as Code Security Scan" >> $GITHUB_STEP_SUMMARY
+          echo "## 🏗️ Infrastructure as Code Security Scan (Checkov)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
+          # --- SARIF-based summary (matches what Code scanning uses for this run) ---
+          if [ -f "checkov-terraform.sarif" ]; then
+            TOTAL=$(jq '.runs[0].results | length' checkov-terraform.sarif)
+            ERROR=$(jq '[.runs[0].results[] | select(.level=="error")] | length' checkov-terraform.sarif)
+            WARN=$(jq '[.runs[0].results[] | select(.level=="warning")] | length' checkov-terraform.sarif)
+            NOTE=$(jq '[.runs[0].results[] | select(.level=="note")] | length' checkov-terraform.sarif)
+
+            echo "### 📌 Terraform SARIF (this run, uploaded to Security tab)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Level (SARIF) | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ error | $ERROR |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⚠️ warning | $WARN |" >> $GITHUB_STEP_SUMMARY
+            echo "| ℹ️ note | $NOTE |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ Terraform SARIF not available (checkov-terraform.sarif missing)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # --- JSON summaries (human friendly passed/failed/skipped) ---
           if [ -f "checkov-terraform.json" ]; then
             TF_PASSED=$(jq '.summary.passed // 0' checkov-terraform.json)
             TF_FAILED=$(jq '.summary.failed // 0' checkov-terraform.json)
             TF_SKIPPED=$(jq '.summary.skipped // 0' checkov-terraform.json)
 
-            echo "### 📦 Terraform (EKS) Results" >> $GITHUB_STEP_SUMMARY
+            echo "### 📦 Terraform (EKS) Results (JSON summary)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "| Status | Count |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
             echo "| ✅ Passed | $TF_PASSED |" >> $GITHUB_STEP_SUMMARY
             echo "| ❌ Failed | $TF_FAILED |" >> $GITHUB_STEP_SUMMARY
             echo "| ⏭️ Skipped | $TF_SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ Terraform JSON summary not available (checkov-terraform.json missing)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
@@ -246,13 +277,16 @@ jobs:
             K8S_FAILED=$(jq '.summary.failed // 0' checkov-k8s.json)
             K8S_SKIPPED=$(jq '.summary.skipped // 0' checkov-k8s.json)
 
-            echo "### ☸️ Kubernetes Manifests Results" >> $GITHUB_STEP_SUMMARY
+            echo "### ☸️ Kubernetes Manifests Results (JSON summary)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "| Status | Count |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
             echo "| ✅ Passed | $K8S_PASSED |" >> $GITHUB_STEP_SUMMARY
             echo "| ❌ Failed | $K8S_FAILED |" >> $GITHUB_STEP_SUMMARY
             echo "| ⏭️ Skipped | $K8S_SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ Kubernetes JSON summary not available (checkov-k8s.json missing)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
