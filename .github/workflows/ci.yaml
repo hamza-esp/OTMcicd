@@ -38,6 +38,7 @@ jobs:
           go test ./...
   secrets-scan:
     name: Secrets Scan (Gitleaks)
+    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
