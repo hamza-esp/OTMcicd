@@ -66,11 +66,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'go' ]  # add 'java' only if this repo contains Java
+        language: [ 'go', 'java', 'javascript', 'python' ]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up Java
+        if: matrix.language == 'java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -78,8 +91,56 @@ jobs:
           languages: ${{ matrix.language }}
           queries: security-extended
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+      - name: Build projects (manual)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${{ matrix.language }}" in
+            go)
+              echo "Building all Go modules..."
+              while IFS= read -r modfile; do
+                dir="$(dirname "$modfile")"
+                echo "==> $dir"
+                pushd "$dir" >/dev/null
+                go mod download
+                go build ./...
+                popd >/dev/null
+              done < <(find . -name go.mod -not -path "./vendor/*")
+              ;;
+
+            java)
+              echo "Building all Gradle projects..."
+              while IFS= read -r gw; do
+                dir="$(dirname "$gw")"
+                echo "==> $dir"
+                pushd "$dir" >/dev/null
+                chmod +x ./gradlew
+                ./gradlew build -x test
+                popd >/dev/null
+              done < <(find . -name gradlew -not -path "./**/.gradle/**")
+              ;;
+
+            javascript)
+              echo "Installing JS dependencies (optional but helpful)..."
+              while IFS= read -r pkg; do
+                dir="$(dirname "$pkg")"
+                echo "==> $dir"
+                pushd "$dir" >/dev/null
+                if [ -f package-lock.json ]; then
+                  npm ci
+                else
+                  npm install
+                fi
+                popd >/dev/null
+              done < <(find . -name package.json -not -path "./**/node_modules/**")
+              ;;
+
+            python)
+              echo "Python: no build required for CodeQL."
+              echo "If you have requirements.txt and want installs, you can add it here."
+              ;;
+          esac
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
