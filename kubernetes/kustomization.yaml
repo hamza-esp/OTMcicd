@@ -12,8 +12,8 @@ resources:
   - checkout/deploy.yaml
   - checkout/svc.yaml
   - currency/deploy.yaml
-  - currency/svc. yaml
-  - email/deploy. yaml
+  - currency/svc.yaml
+  - email/deploy.yaml
   - email/svc.yaml
   - flagd/deploy.yaml
   - flagd/svc.yaml
@@ -24,16 +24,16 @@ resources:
   - frontendproxy/deploy.yaml
   - frontendproxy/svc.yaml
   - imageprovider/deploy.yaml
-  - imageprovider/svc. yaml
-  - kafka/deploy. yaml
+  - imageprovider/svc.yaml
+  - kafka/deploy.yaml
   - kafka/svc.yaml
   - loadgenerator/deploy.yaml
-  - loadgenerator/svc. yaml
-  - payment/deploy. yaml
+  - loadgenerator/svc.yaml
+  - payment/deploy.yaml
   - payment/svc.yaml
   - productcatalog/deploy.yaml
-  - productcatalog/svc. yaml
-  - quote/deploy. yaml
+  - productcatalog/svc.yaml
+  - quote/deploy.yaml
   - quote/svc.yaml
   - recommendation/deploy.yaml
   - recommendation/svc.yaml
