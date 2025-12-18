@@ -4,7 +4,7 @@ kind: Kustomization
 resources: 
   - serviceaccount.yaml
   - accounting/deploy.yaml
-  - accounting/svc.yaml
+  
   - ad/deploy.yaml
   - ad/svc.yaml
   - cart/deploy.yaml
@@ -17,12 +17,13 @@ resources:
   - email/svc.yaml
   - flagd/deploy.yaml
   - flagd/svc.yaml
+  - flagd/cm.yaml
   - frauddetection/deploy.yaml
-  - frauddetection/svc.yaml
   - frontend/deploy.yaml
   - frontend/svc.yaml
   - frontendproxy/deploy.yaml
   - frontendproxy/svc.yaml
+  - frontendproxy/ingress.yaml
   - imageprovider/deploy.yaml
   - imageprovider/svc.yaml
   - kafka/deploy.yaml
