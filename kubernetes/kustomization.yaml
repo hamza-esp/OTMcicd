@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s. io/v1beta1
+kind: Kustomization
+
+resources: 
+  - serviceaccount.yaml
+  - accounting/deploy.yaml
+  - accounting/svc.yaml
+  - ad/deploy.yaml
+  - ad/svc.yaml
+  - cart/deploy.yaml
+  - cart/svc.yaml
+  - checkout/deploy.yaml
+  - checkout/svc.yaml
+  - currency/deploy.yaml
+  - currency/svc. yaml
+  - email/deploy. yaml
+  - email/svc.yaml
+  - flagd/deploy.yaml
+  - flagd/svc.yaml
+  - frauddetection/deploy.yaml
+  - frauddetection/svc.yaml
+  - frontend/deploy.yaml
+  - frontend/svc.yaml
+  - frontendproxy/deploy.yaml
+  - frontendproxy/svc.yaml
+  - imageprovider/deploy.yaml
+  - imageprovider/svc. yaml
+  - kafka/deploy. yaml
+  - kafka/svc.yaml
+  - loadgenerator/deploy.yaml
+  - loadgenerator/svc. yaml
+  - payment/deploy. yaml
+  - payment/svc.yaml
+  - productcatalog/deploy.yaml
+  - productcatalog/svc. yaml
+  - quote/deploy. yaml
+  - quote/svc.yaml
+  - recommendation/deploy.yaml
+  - recommendation/svc.yaml
+  - shipping/deploy.yaml
+  - shipping/svc.yaml
+  - valkey/deploy.yaml
+  - valkey/svc.yaml
