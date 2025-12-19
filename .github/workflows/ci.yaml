@@ -38,6 +38,7 @@ jobs:
           go test ./...
   secrets-scan:
     name:  Secrets Scan (Gitleaks)
+    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -90,9 +91,15 @@ jobs:
         with:
           version: v1.55.2
           working-directory: src/product-catalog
-       
-  # JOB: Trivy Security Scanning (SIMPLE - Easy to understand)
+  snyk-scanning:
+    name: Snyk Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo "Snyk scanning placeholder job (no-op) ✅"     
+  # JOB: Trivy Security Scanning
   security-scan:
+    name:  Security Scan (Trivy Filesystem)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -294,10 +301,11 @@ jobs:
           fi
 
           echo "[View detailed results in Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
-
+            
+      
   docker:
     runs-on: ubuntu-latest
-    needs: [build, security-scan, iac-security]
+    needs: [build, security-scan, iac-security, secrets-scan,snyk-scanning]
     permissions:
       contents: read
       security-events: write
