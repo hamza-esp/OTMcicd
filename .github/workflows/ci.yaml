@@ -48,20 +48,25 @@ jobs:
       - name: Checkout repository (shallow)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1   # only current commit
+          fetch-depth: 1
 
-      - name: Run Gitleaks (filesystem only, SARIF)
+      - name: Run Gitleaks (SARIF, current files only)
         id: gitleaks
         uses: gitleaks/gitleaks-action@v2
         continue-on-error: true
         with:
-          args: detect --source . --no-git --report-format sarif --report-path gitleaks.sarif
+          # IMPORTANT: do NOT include "detect" here
+          args: --source . --no-git --report-format sarif --report-path gitleaks.sarif
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Debug - list SARIF
+        if: always()
+        run: ls -la
+
       - name: Upload Gitleaks results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && hashFiles('gitleaks.sarif') != ''
         with:
           sarif_file: gitleaks.sarif
           category: gitleaks
@@ -71,6 +76,7 @@ jobs:
         run: |
           echo "⚠️ Gitleaks detected potential secrets in the repository"
           echo "Please review the Security tab for details"
+
 
 
   code-quality:
