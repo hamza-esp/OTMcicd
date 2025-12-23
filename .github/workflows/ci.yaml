@@ -97,140 +97,38 @@ jobs:
         with:
           version: v1.55.2
           working-directory: src/product-catalog
-  snyk-scanning:
-    name: Snyk Scanning (Go - product-catalog)
+  snyk:
+    name: Snyk Security
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
       actions: read
-
-    # Prevent running on forked PRs where secrets are not available
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go 1.22
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-
-      - name: Setup Snyk CLI (pinned)
+      - name: Set up Snyk CLI to check for security issues
         uses: snyk/actions/setup@806182742461562b67788a64410098c9d9b96adb
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-      - name: Check SNYK_TOKEN is set (safe)
-        run: |
-          if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
-            echo "❌ SNYK_TOKEN secret is EMPTY or not available to this workflow run."
-            echo "Most common cause: PR from a fork (GitHub does not expose secrets)."
-            exit 1
-          else
-            echo "✅ SNYK_TOKEN secret is present."
-          fi
+      # Runs Snyk Code (SAST) analysis and writes SARIF for GitHub Code Scanning
+      - name: Snyk Code test
+        run: snyk code test --sarif > snyk-code.sarif
+        continue-on-error: true
 
-      - name: Validate Snyk token
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-          SNYK_API: https://api.snyk.io
-        run: |
-          snyk auth "${SNYK_TOKEN}"
+      # Runs Snyk Open Source (SCA) analysis and uploads result to Snyk
+      - name: Snyk Open Source monitor
+        run: snyk monitor --all-projects
 
-      - name: Check SNYK_ORG is set (safe)
-        run: |
-          if [ -z "${{ secrets.SNYK_ORG }}" ]; then
-            echo "❌ SNYK_ORG secret is missing. Set it to your org slug or org id."
-            exit 1
-          else
-            echo "✅ SNYK_ORG secret is present."
-          fi    
-      # Optional: helps some tooling when go.mod has patch/toolchain lines
-      - name: Make go.mod scanner-friendly (CI only)
-        working-directory: src/product-catalog
-        run: |
-          go mod tidy
-          go mod download
-      
+     
 
-      - name: Snyk Open Source test (SARIF)
-        working-directory: src/product-catalog
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: |
-          snyk test --org=${{ secrets.SNYK_ORG }} --file=go.mod \
-            --sarif-file-output=../../snyk-results.sarif \
-            --severity-threshold=high || true
-
-      - name: Upload SARIF to GitHub Code Scanning
+      # Push the Snyk Code results into GitHub Code Scanning tab
+      - name: Upload result to GitHub Code Scanning
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
-        if: always() && hashFiles('snyk-results.sarif') != ''
         with:
-          sarif_file: snyk-results.sarif
-          category: snyk-open-source
-
-      - name: Snyk Open Source test (JSON) + capture exit code
-        working-directory: src/product-catalog
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: |
-          set +e
-          snyk test --org=${{ secrets.SNYK_ORG }} --file=go.mod \
-            --json-file-output=../../snyk-results.json \
-            --severity-threshold=low
-          echo "SNYK_EXIT_CODE=$?" >> $GITHUB_ENV
-          set -e
-
-
-      - name: Debug - show produced files
-        if: always()
-        run: ls -la snyk-results.* || true
-    
-      - name: Generate Snyk Summary
-        if: always()
-        run: |
-          echo "## Snyk Scan Summary (product-catalog)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- Exit code: ${SNYK_EXIT_CODE:-unknown}" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${SNYK_EXIT_CODE:-2}" = "2" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "❌ Snyk scan errored (exit code 2). Results may be incomplete." >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
-
-          if [ -f "snyk-results.json" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            jq -r '
-              def count(sev): (.vulnerabilities // [] | map(select(.severity==sev)) | length);
-              "### Vulnerabilities by severity\n" +
-              "- Critical: " + (count("critical")|tostring) + "\n" +
-              "- High: "     + (count("high")|tostring)     + "\n" +
-              "- Medium: "   + (count("medium")|tostring)   + "\n" +
-              "- Low: "      + (count("low")|tostring)
-            ' snyk-results.json >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ snyk-results.json missing." >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Upload snyk results artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: snyk-results-product-catalog
-          path: |
-            snyk-results.json
-            snyk-results.sarif
-   
-      - name: Debug outputs
-        if: always()
-        run: |
-          ls -la
-          test -f snyk-results.sarif && echo "✅ Found snyk-results.sarif" || echo "❌ Missing snyk-results.sarif"
-          test -f snyk-results.json  && echo "✅ Found snyk-results.json"  || echo "❌ Missing snyk-results.json"
-
+          sarif_file: snyk-code.sarif
 
   # JOB: Trivy Security Scanning
   security-scan:
