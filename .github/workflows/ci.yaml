@@ -103,29 +103,44 @@ jobs:
     permissions:
       contents: read
       security-events: write
-      actions: read
-    
-    steps: 
+
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Go 1.22
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.22
+          go-version: "1.22"
 
-      - name: Download Go dependencies
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@master
+
+      # Optional but very useful to confirm token is valid (won't leak secrets)
+      - name: Verify Snyk token
+        run: snyk whoami
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      # Optional: makes go.mod more "scanner-friendly" in CI only
+      # (helps if Snyk chokes on `go 1.22.7` or `toolchain go1.22.9`)
+      - name: Make go.mod scanner-friendly (CI only)
+        working-directory: src/product-catalog
         run: |
-          cd src/product-catalog
-          go mod download
+          cp go.mod go.mod.bak
+          sed -i 's/^go 1\.22\.7$/go 1.22/' go.mod
+          sed -i '/^toolchain /d' go.mod
 
       - name: Run Snyk to check for vulnerabilities (SARIF)
-        uses: snyk/actions/golang@master
+        working-directory: src/product-catalog
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --sarif-file-output=snyk-results.sarif --file=src/product-catalog/go.mod --severity-threshold=high
+        run: |
+          snyk test --file=go.mod \
+            --sarif-file-output=../../snyk-results.sarif \
+            --severity-threshold=high \
+            --debug
 
       - name: Upload Snyk results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
@@ -135,50 +150,61 @@ jobs:
           category: snyk
 
       - name: Run Snyk to check for vulnerabilities (JSON)
-        uses: snyk/actions/golang@master
+        working-directory: src/product-catalog
         continue-on-error: true
         env:
-          SNYK_TOKEN: ${{ secrets. SNYK_TOKEN }}
-        with:
-          args: --json-file-output=snyk-results.json --file=src/product-catalog/go.mod --severity-threshold=medium
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk test --file=go.mod \
+            --json-file-output=../../snyk-results.json \
+            --severity-threshold=medium
 
       - name: Generate Snyk Scan Summary
         if: always()
         run: |
-          echo "## 🔍 Snyk Vulnerability Scan Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
           if [ -f "snyk-results.json" ]; then
-            # Extract vulnerability counts by severity
-            CRITICAL=$(jq '[.vulnerabilities[]? | select(.severity=="critical")] | length' snyk-results.json 2>/dev/null || echo "0")
-            HIGH=$(jq '[.vulnerabilities[]? | select(.severity=="high")] | length' snyk-results.json 2>/dev/null || echo "0")
-            MEDIUM=$(jq '[.vulnerabilities[]? | select(.severity=="medium")] | length' snyk-results.json 2>/dev/null || echo "0")
-            LOW=$(jq '[.vulnerabilities[]? | select(.severity=="low")] | length' snyk-results.json 2>/dev/null || echo "0")
-            TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
-
-            echo "### 📊 Vulnerability Summary" >> $GITHUB_STEP_SUMMARY
+            echo "## Snyk Scan Summary" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-            echo "| ⚠️ Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
-            echo "| ℹ️ Low | $LOW |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              def sev(n):
+                if n==0 then "✅ None"
+                elif n==1 then "⚠️ 1"
+                else "❌ " + (n|tostring)
+                end;
 
-            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-              echo "⚠️ **Warning:** Critical or High severity vulnerabilities detected!" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "✅ **No Critical or High severity vulnerabilities detected**" >> $GITHUB_STEP_SUMMARY
-            fi
+              if (.vulnerabilities? // []) | length == 0 then
+                "✅ No vulnerabilities found (or none returned)."
+              else
+                (
+                  (.vulnerabilities // [])
+                  | group_by(.severity)
+                  | map({ (.[0].severity): length })
+                  | add
+                ) as $counts
+                |
+                (
+                  "### Vulnerabilities by severity\n"
+                  + "- Critical: " + sev(($counts.critical // 0)) + "\n"
+                  + "- High: "     + sev(($counts.high // 0)) + "\n"
+                  + "- Medium: "   + sev(($counts.medium // 0)) + "\n"
+                  + "- Low: "      + sev(($counts.low // 0)) + "\n"
+                )
+              end
+            ' snyk-results.json >> $GITHUB_STEP_SUMMARY
           else
-            echo "ℹ️ Snyk scan results not available" >> $GITHUB_STEP_SUMMARY
+            echo "Snyk scan results not available (snyk-results.json missing)." >> $GITHUB_STEP_SUMMARY
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View detailed results in Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY    
-    # JOB: Trivy Security Scanning
+      - name: Debug - show generated outputs
+        if: always()
+        run: |
+          echo "Repo root files:"
+          ls -la
+          echo ""
+          test -f snyk-results.sarif && echo "✅ Found snyk-results.sarif" || echo "❌ Missing snyk-results.sarif"
+          test -f snyk-results.json  && echo "✅ Found snyk-results.json"  || echo "❌ Missing snyk-results.json"
+
+  # JOB: Trivy Security Scanning
   security-scan:
     name:  Security Scan (Trivy Filesystem)
     runs-on: ubuntu-latest
