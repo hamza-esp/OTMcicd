@@ -171,14 +171,18 @@ jobs:
           sarif_file: snyk-results.sarif
           category: snyk-open-source
 
-      - name: Snyk Open Source test (JSON)
+      - name: Snyk Open Source test (JSON) + capture exit code
         working-directory: src/product-catalog
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
+          set +e
           snyk test --org=${{ secrets.SNYK_ORG }} --file=go.mod \
             --json-file-output=../../snyk-results.json \
-            --severity-threshold=medium || true
+            --severity-threshold=low
+          echo "SNYK_EXIT_CODE=$?" >> $GITHUB_ENV
+          set -e
+
 
       - name: Debug - show produced files
         if: always()
@@ -187,24 +191,30 @@ jobs:
       - name: Generate Snyk Summary
         if: always()
         run: |
+          echo "## Snyk Scan Summary (product-catalog)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Exit code: ${SNYK_EXIT_CODE:-unknown}" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${SNYK_EXIT_CODE:-2}" = "2" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Snyk scan errored (exit code 2). Results may be incomplete." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
           if [ -f "snyk-results.json" ]; then
-            echo "## Snyk Scan Summary (product-catalog)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             jq -r '
               def count(sev): (.vulnerabilities // [] | map(select(.severity==sev)) | length);
-              if ((.vulnerabilities // []) | length) == 0 then
-                "✅ No vulnerabilities found (or none returned)."
-              else
-                "### Vulnerabilities by severity\n" +
-                "- Critical: " + (count("critical")|tostring) + "\n" +
-                "- High: "     + (count("high")|tostring)     + "\n" +
-                "- Medium: "   + (count("medium")|tostring)   + "\n" +
-                "- Low: "      + (count("low")|tostring)
-              end
+              "### Vulnerabilities by severity\n" +
+              "- Critical: " + (count("critical")|tostring) + "\n" +
+              "- High: "     + (count("high")|tostring)     + "\n" +
+              "- Medium: "   + (count("medium")|tostring)   + "\n" +
+              "- Low: "      + (count("low")|tostring)
             ' snyk-results.json >> $GITHUB_STEP_SUMMARY
           else
-            echo "Snyk scan results not available (snyk-results.json missing)." >> $GITHUB_STEP_SUMMARY
+            echo "❌ snyk-results.json missing." >> $GITHUB_STEP_SUMMARY
           fi
+
 
       - name: Debug outputs
         if: always()
