@@ -133,11 +133,12 @@ jobs:
           fi
 
       - name: Validate Snyk token
-        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SNYK_API: https://api.snyk.io
         run: |
-          snyk auth "${SNYK_TOKEN}" --debug || true
+          snyk auth "${SNYK_TOKEN}"
+
 
       # Optional: helps some tooling when go.mod has patch/toolchain lines
       - name: Make go.mod scanner-friendly (CI only)
