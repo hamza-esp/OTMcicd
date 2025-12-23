@@ -215,7 +215,15 @@ jobs:
             echo "❌ snyk-results.json missing." >> $GITHUB_STEP_SUMMARY
           fi
 
-
+      - name: Upload snyk results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-results-product-catalog
+          path: |
+            snyk-results.json
+            snyk-results.sarif
+   
       - name: Debug outputs
         if: always()
         run: |
