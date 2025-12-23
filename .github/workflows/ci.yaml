@@ -98,11 +98,15 @@ jobs:
           version: v1.55.2
           working-directory: src/product-catalog
   snyk-scanning:
-    name: Snyk Scanning
+    name: Snyk Scanning (Go - product-catalog)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
+      actions: read
+
+    # Prevent running on forked PRs where secrets are not available
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Checkout code
@@ -113,18 +117,29 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Install Snyk CLI
-        uses: snyk/actions/setup@master
+      - name: Setup Snyk CLI (pinned)
+        uses: snyk/actions/setup@806182742461562b67788a64410098c9d9b96adb
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-      # Optional token check (won't leak secrets) - make it NON blocking
-      - name: Verify Snyk token
+      - name: Check SNYK_TOKEN is set (safe)
+        run: |
+          if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+            echo "❌ SNYK_TOKEN secret is EMPTY or not available to this workflow run."
+            echo "Most common cause: PR from a fork (GitHub does not expose secrets)."
+            exit 0
+          else
+            echo "✅ SNYK_TOKEN secret is present."
+          fi
+
+      - name: Validate Snyk token
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          snyk whoami --experimental || true
+          snyk auth "${SNYK_TOKEN}" --debug || true
 
-      # Optional: helps if scanners choke on go patch/toolchain lines (CI only)
+      # Optional: helps some tooling when go.mod has patch/toolchain lines
       - name: Make go.mod scanner-friendly (CI only)
         working-directory: src/product-catalog
         run: |
@@ -132,25 +147,24 @@ jobs:
           sed -i 's/^go 1\.22\.7$/go 1.22/' go.mod
           sed -i '/^toolchain /d' go.mod
 
-      - name: Run Snyk (SARIF)
+      - name: Snyk Open Source test (SARIF)
         working-directory: src/product-catalog
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          # Snyk exits 1 when it finds vulns; we still want the SARIF file
           snyk test --file=go.mod \
             --sarif-file-output=../../snyk-results.sarif \
             --severity-threshold=high \
             --debug || true
 
-      - name: Upload SARIF to GitHub Security
+      - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v4
         if: always() && hashFiles('snyk-results.sarif') != ''
         with:
           sarif_file: snyk-results.sarif
-          category: snyk
+          category: snyk-open-source
 
-      - name: Run Snyk (JSON)
+      - name: Snyk Open Source test (JSON)
         working-directory: src/product-catalog
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -159,16 +173,14 @@ jobs:
             --json-file-output=../../snyk-results.json \
             --severity-threshold=medium || true
 
-      - name: Generate Snyk Scan Summary
+      - name: Generate Snyk Summary
         if: always()
         run: |
           if [ -f "snyk-results.json" ]; then
-            echo "## Snyk Scan Summary" >> $GITHUB_STEP_SUMMARY
+            echo "## Snyk Scan Summary (product-catalog)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-
             jq -r '
               def count(sev): (.vulnerabilities // [] | map(select(.severity==sev)) | length);
-
               if ((.vulnerabilities // []) | length) == 0 then
                 "✅ No vulnerabilities found (or none returned)."
               else
@@ -183,12 +195,13 @@ jobs:
             echo "Snyk scan results not available (snyk-results.json missing)." >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Debug - show generated outputs
+      - name: Debug outputs
         if: always()
         run: |
           ls -la
           test -f snyk-results.sarif && echo "✅ Found snyk-results.sarif" || echo "❌ Missing snyk-results.sarif"
           test -f snyk-results.json  && echo "✅ Found snyk-results.json"  || echo "❌ Missing snyk-results.json"
+
 
   # JOB: Trivy Security Scanning
   security-scan:
