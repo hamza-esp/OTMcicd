@@ -127,7 +127,7 @@ jobs:
           if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
             echo "❌ SNYK_TOKEN secret is EMPTY or not available to this workflow run."
             echo "Most common cause: PR from a fork (GitHub does not expose secrets)."
-            exit 0
+            exit 1
           else
             echo "✅ SNYK_TOKEN secret is present."
           fi
@@ -139,24 +139,30 @@ jobs:
         run: |
           snyk auth "${SNYK_TOKEN}"
 
-
+      - name: Check SNYK_ORG is set (safe)
+        run: |
+          if [ -z "${{ secrets.SNYK_ORG }}" ]; then
+            echo "❌ SNYK_ORG secret is missing. Set it to your org slug or org id."
+            exit 1
+          else
+            echo "✅ SNYK_ORG secret is present."
+          fi    
       # Optional: helps some tooling when go.mod has patch/toolchain lines
       - name: Make go.mod scanner-friendly (CI only)
         working-directory: src/product-catalog
         run: |
-          cp go.mod go.mod.bak
-          sed -i 's/^go 1\.22\.7$/go 1.22/' go.mod
-          sed -i '/^toolchain /d' go.mod
+          go mod tidy
+          go mod download
+      
 
       - name: Snyk Open Source test (SARIF)
         working-directory: src/product-catalog
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          snyk test --file=go.mod \
+          snyk test --org=${{ secrets.SNYK_ORG }} --file=go.mod \
             --sarif-file-output=../../snyk-results.sarif \
-            --severity-threshold=high \
-            --debug || true
+            --severity-threshold=high || true
 
       - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v4
@@ -170,10 +176,14 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          snyk test --file=go.mod \
+          snyk test --org=${{ secrets.SNYK_ORG }} --file=go.mod \
             --json-file-output=../../snyk-results.json \
             --severity-threshold=medium || true
 
+      - name: Debug - show produced files
+        if: always()
+        run: ls -la snyk-results.* || true
+    
       - name: Generate Snyk Summary
         if: always()
         run: |
