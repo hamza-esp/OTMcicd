@@ -1,6 +1,6 @@
 # ECR Repository for Product Catalog Microservice
 resource "aws_ecr_repository" "product_catalog" {
-  name                 = "product-catalog"
+  name                 = "ecr-repo"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
