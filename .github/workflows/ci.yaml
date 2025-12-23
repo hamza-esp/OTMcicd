@@ -116,14 +116,15 @@ jobs:
       - name: Install Snyk CLI
         uses: snyk/actions/setup@master
 
-      # Optional but very useful to confirm token is valid (won't leak secrets)
+      # Optional token check (won't leak secrets) - make it NON blocking
       - name: Verify Snyk token
-        run: snyk whoami
+        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk whoami --experimental || true
 
-      # Optional: makes go.mod more "scanner-friendly" in CI only
-      # (helps if Snyk chokes on `go 1.22.7` or `toolchain go1.22.9`)
+      # Optional: helps if scanners choke on go patch/toolchain lines (CI only)
       - name: Make go.mod scanner-friendly (CI only)
         working-directory: src/product-catalog
         run: |
@@ -131,33 +132,32 @@ jobs:
           sed -i 's/^go 1\.22\.7$/go 1.22/' go.mod
           sed -i '/^toolchain /d' go.mod
 
-      - name: Run Snyk to check for vulnerabilities (SARIF)
+      - name: Run Snyk (SARIF)
         working-directory: src/product-catalog
-        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
+          # Snyk exits 1 when it finds vulns; we still want the SARIF file
           snyk test --file=go.mod \
             --sarif-file-output=../../snyk-results.sarif \
             --severity-threshold=high \
-            --debug
+            --debug || true
 
-      - name: Upload Snyk results to GitHub Security
+      - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always() && hashFiles('snyk-results.sarif') != ''
         with:
           sarif_file: snyk-results.sarif
           category: snyk
 
-      - name: Run Snyk to check for vulnerabilities (JSON)
+      - name: Run Snyk (JSON)
         working-directory: src/product-catalog
-        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
           snyk test --file=go.mod \
             --json-file-output=../../snyk-results.json \
-            --severity-threshold=medium
+            --severity-threshold=medium || true
 
       - name: Generate Snyk Scan Summary
         if: always()
@@ -165,30 +165,18 @@ jobs:
           if [ -f "snyk-results.json" ]; then
             echo "## Snyk Scan Summary" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            jq -r '
-              def sev(n):
-                if n==0 then "✅ None"
-                elif n==1 then "⚠️ 1"
-                else "❌ " + (n|tostring)
-                end;
 
-              if (.vulnerabilities? // []) | length == 0 then
+            jq -r '
+              def count(sev): (.vulnerabilities // [] | map(select(.severity==sev)) | length);
+
+              if ((.vulnerabilities // []) | length) == 0 then
                 "✅ No vulnerabilities found (or none returned)."
               else
-                (
-                  (.vulnerabilities // [])
-                  | group_by(.severity)
-                  | map({ (.[0].severity): length })
-                  | add
-                ) as $counts
-                |
-                (
-                  "### Vulnerabilities by severity\n"
-                  + "- Critical: " + sev(($counts.critical // 0)) + "\n"
-                  + "- High: "     + sev(($counts.high // 0)) + "\n"
-                  + "- Medium: "   + sev(($counts.medium // 0)) + "\n"
-                  + "- Low: "      + sev(($counts.low // 0)) + "\n"
-                )
+                "### Vulnerabilities by severity\n" +
+                "- Critical: " + (count("critical")|tostring) + "\n" +
+                "- High: "     + (count("high")|tostring)     + "\n" +
+                "- Medium: "   + (count("medium")|tostring)   + "\n" +
+                "- Low: "      + (count("low")|tostring)
               end
             ' snyk-results.json >> $GITHUB_STEP_SUMMARY
           else
@@ -198,9 +186,7 @@ jobs:
       - name: Debug - show generated outputs
         if: always()
         run: |
-          echo "Repo root files:"
           ls -la
-          echo ""
           test -f snyk-results.sarif && echo "✅ Found snyk-results.sarif" || echo "❌ Missing snyk-results.sarif"
           test -f snyk-results.json  && echo "✅ Found snyk-results.json"  || echo "❌ Missing snyk-results.json"
 
