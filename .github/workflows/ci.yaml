@@ -123,6 +123,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          cache: true
+          cache-dependency-path: src/product-catalog/go.sum
 
       - name: Setup Snyk CLI
         uses: snyk/actions/setup@806182742461562b67788a64410098c9d9b96adb
