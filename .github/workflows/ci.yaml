@@ -444,7 +444,7 @@ jobs:
         with:
           sarif_file: 'trivy-image-results.sarif'
           category: 'trivy-image'
-
+#dummy change
   updatek8s:
     runs-on: ubuntu-latest
     needs: docker
