@@ -97,38 +97,30 @@ jobs:
         with:
           version: v1.55.2
           working-directory: src/product-catalog
-  snyk:
-    name: Snyk Security
+  snyk-sca-product-catalog:
+    name: Snyk SCA 
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
-      actions: read
+
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Snyk CLI to check for security issues
-        uses: snyk/actions/setup@806182742461562b67788a64410098c9d9b96adb
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      # Runs Snyk Code (SAST) analysis and writes SARIF for GitHub Code Scanning
-      - name: Snyk Code test
-        run: snyk code test --sarif > snyk-code.sarif
-        continue-on-error: true
-
-      # Runs Snyk Open Source (SCA) analysis and uploads result to Snyk
-      - name: Snyk Open Source monitor
-        run: snyk monitor --all-projects
-
-     
-
-      # Push the Snyk Code results into GitHub Code Scanning tab
-      - name: Upload result to GitHub Code Scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
         with:
-          sarif_file: snyk-code.sarif
+          go-version: "1.22"
+
+      - name: Setup Snyk CLI
+        uses: snyk/actions/setup@806182742461562b67788a64410098c9d9b96adb
+
+      - name: Snyk Open Source monitor (go.mod only)
+        working-directory: src/product-catalog
+        run: snyk monitor --file=go.mod
+
 
   # JOB: Trivy Security Scanning
   security-scan:
