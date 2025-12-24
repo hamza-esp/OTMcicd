@@ -334,29 +334,13 @@ jobs:
           echo "## 🏗️ Infrastructure as Code Security Scan (Checkov)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          TF_SARIF="checkov-results/checkov-terraform.sarif/results_sarif.sarif"
+          
           TF_JSON="checkov-results/checkov-terraform.json/results_json.json"
           K8S_JSON="checkov-results/checkov-k8s.json/results_json.json"
 
           FOUND=0
 
-          # --- Terraform SARIF summary (matches Security tab upload) ---
-          if [ -f "$TF_SARIF" ]; then
-            FOUND=1
-            TOTAL=$(jq '.runs[0].results | length' "$TF_SARIF")
-            ERROR=$(jq '[.runs[0].results[] | select(.level=="error")] | length' "$TF_SARIF")
-            WARN=$(jq '[.runs[0].results[] | select(.level=="warning")] | length' "$TF_SARIF")
-            NOTE=$(jq '[.runs[0].results[] | select(.level=="note")] | length' "$TF_SARIF")
-
-            echo "### 📌 Terraform SARIF (this run)" >> $GITHUB_STEP_SUMMARY
-            echo "| Level | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ error | $ERROR |" >> $GITHUB_STEP_SUMMARY
-            echo "| ⚠️ warning | $WARN |" >> $GITHUB_STEP_SUMMARY
-            echo "| ℹ️ note | $NOTE |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
+         
 
           # --- Terraform JSON policy summary ---
           if [ -f "$TF_JSON" ]; then
