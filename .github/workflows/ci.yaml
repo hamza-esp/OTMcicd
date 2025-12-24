@@ -117,10 +117,9 @@ jobs:
       - name: Setup Snyk CLI
         uses: snyk/actions/setup@806182742461562b67788a64410098c9d9b96adb
 
-      - name: Snyk Open Source monitor (go.mod only)
+      - name: Snyk Open Source test (go.mod only)
         working-directory: src/product-catalog
-        run: snyk monitor --file=go.mod
-
+        run: snyk test --file=go.mod
 
   # JOB: Trivy Security Scanning
   security-scan:
