@@ -3,11 +3,7 @@
 name: payment-ci
 
 on:  
-    pull_request:
-        branches: 
-        - main
-        paths:
-        - 'src/payment/**'
+    
     workflow_dispatch:
         inputs:
             debug:
