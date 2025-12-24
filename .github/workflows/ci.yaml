@@ -119,8 +119,69 @@ jobs:
 
       - name: Snyk Open Source test (go.mod only)
         working-directory: src/product-catalog
-        run: snyk test --file=go.mod
+        run: |
+         snyk test --file=go.mod --project-name=product-catalog \
+           --json-file-output=snyk-oss.json | tee snyk-oss.txt
+      - name: Summary (Snyk SCA)
+        if: always()
+        working-directory: src/product-catalog
+        run: |
+          echo "## 🧩 Snyk SCA Summary (product-catalog)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
+          # In SCA, "files scanned" effectively means manifest files used to build the dependency graph.
+          echo "**Manifest scanned:** \`go.mod\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Project:** \`product-catalog\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "snyk-oss.json" ]; then
+            # Handle both legacy and newer JSON shapes
+            VULNS_EXPR='(.vulnerabilities // .issues.vulnerabilities // [])'
+
+            TOTAL=$(jq "$VULNS_EXPR | length" snyk-oss.json 2>/dev/null || echo 0)
+            CRIT=$(jq "[ $VULNS_EXPR[] | select(.severity==\"critical\") ] | length" snyk-oss.json 2>/dev/null || echo 0)
+            HIGH=$(jq "[ $VULNS_EXPR[] | select(.severity==\"high\") ] | length" snyk-oss.json 2>/dev/null || echo 0)
+            MED=$(jq "[ $VULNS_EXPR[] | select(.severity==\"medium\") ] | length" snyk-oss.json 2>/dev/null || echo 0)
+            LOW=$(jq "[ $VULNS_EXPR[] | select(.severity==\"low\") ] | length" snyk-oss.json 2>/dev/null || echo 0)
+
+            DEP_COUNT=$(jq -r '.dependencyCount // empty' snyk-oss.json 2>/dev/null || true)
+            if [ -z "$DEP_COUNT" ] && [ -f "snyk-oss.txt" ]; then
+              DEP_COUNT=$(grep -Eo 'Tested [0-9]+' snyk-oss.txt | awk '{print $2}' | tail -n1)
+            fi
+            DEP_COUNT=${DEP_COUNT:-"unknown"}
+
+            echo "### 📊 Dependency graph" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Dependencies tested:** $DEP_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            echo "### 🛡️ Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|---|---:|" >> $GITHUB_STEP_SUMMARY
+            echo "| Critical | $CRIT |" >> $GITHUB_STEP_SUMMARY
+            echo "| High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| Medium | $MED |" >> $GITHUB_STEP_SUMMARY
+            echo "| Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$TOTAL" -gt 0 ]; then
+              echo "### 🔎 Top findings (up to 5)" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              jq -r "$VULNS_EXPR
+                | sort_by(.severity)
+                | reverse
+                | .[0:5][]
+                | \"- [\(.severity)] \(.title) — \(.packageName)@\(.version) (id: \(.id))\" " snyk-oss.json >> $GITHUB_STEP_SUMMARY || true
+              echo "" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **No vulnerable paths found.**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⚠️ Snyk JSON output not found. (snyk-oss.json missing)" >> $GITHUB_STEP_SUMMARY
+          fi    
   # JOB: Trivy Security Scanning
   security-scan:
     name:  Security Scan (Trivy Filesystem)
