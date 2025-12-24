@@ -76,7 +76,17 @@ jobs:
         run: |
           echo "⚠️ Gitleaks detected potential secrets in the repository"
           echo "Please review the Security tab for details"
-
+      - name: Summary (Gitleaks)
+        if: always()
+        run: |
+          echo "## 🔐 Gitleaks Summary" >> $GITHUB_STEP_SUMMARY
+          if [ -f "results.sarif" ]; then
+            COUNT=$(jq '.runs[0].results | length' results.sarif 2>/dev/null || echo 0)
+            echo "- Findings in this run: **$COUNT**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- SARIF not found" >> $GITHUB_STEP_SUMMARY
+          fi
+    
 
 
   code-quality:
@@ -117,7 +127,7 @@ jobs:
       - name: Setup Snyk CLI
         uses: snyk/actions/setup@806182742461562b67788a64410098c9d9b96adb
 
-      - name: Snyk Open Source test (go.mod only)
+      - name: Snyk Open Source test 
         working-directory: src/product-catalog
         run: |
          snyk test --file=go.mod --project-name=product-catalog \
